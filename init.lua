@@ -75,9 +75,13 @@ end
 local teleport_destinations = {}
 
 function set_teleport_destination(playername, dest)
-	minetest.chat_send_player(playername,
-			"Marked destination: " .. minetest.pos_to_string(dest))
 	teleport_destinations[playername] = dest
+	tp_effect(dest)
+	minetest.sound_play("portal_open", {
+		pos = dest,
+		gain = 1.0,
+		max_hear_distance = 10
+	})
 end
 
 --------------------------------------------------------------------------------
