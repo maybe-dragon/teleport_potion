@@ -109,12 +109,14 @@ minetest.register_node("teleport_potion:portal", {
 			max_hear_distance = 10
 		})
 
-		minetest.set_node(pos, {name = "air"})
+		minetest.remove_node(pos)
 	end,
 })
 
+--------------------------------------------------------------------------------
+--- Teleport potion
+--------------------------------------------------------------------------------
 
--- teleport potion
 minetest.register_node("teleport_potion:potion", {
 	tiles = {"pad.png"},
 	drawtype = "signlike",
@@ -199,8 +201,12 @@ minetest.register_craft({
 	},
 })
 
+--------------------------------------------------------------------------------
+--- Teleport pad
+--------------------------------------------------------------------------------
+local teleport_destinations = {}
+local teleport_formspec_context = {}
 
--- teleport pad
 minetest.register_node("teleport_potion:pad", {
 	tiles = {"padd.png", "padd.png^[transformFY"},
 	drawtype = "nodebox",
@@ -223,62 +229,106 @@ minetest.register_node("teleport_potion:pad", {
 		fixed = {-0.5, -0.5, -0.5, 0.5, -6/16, 0.5}
 	},
 
-	on_construct = function(pos)
-
-		local meta = minetest.get_meta(pos)
-
-		-- text entry formspec
-		meta:set_string("formspec", "field[text;" .. S("Enter teleport coords (e.g. 200,20,-200,Home)") .. ";${text}]")
-		meta:set_string("infotext", S("Right-click to enchant teleport location"))
-		meta:set_string("text", pos.x .. "," .. pos.y .. "," .. pos.z)
-
-		-- set default coords
-		meta:set_int("x", pos.x)
-		meta:set_int("y", pos.y)
-		meta:set_int("z", pos.z)
+	on_use = function(itemstack, user, pointed_thing)
+		-- Save pointed nodes coordinates as destination for further portals
+		if pointed_thing.type ~= "node" then
+			return
+		end
+		local name = user:get_player_name()
+		local dest = pointed_thing.above
+		minetest.chat_send_player(name,
+				"Marked destination: " .. minetest.pos_to_string(dest))
+		teleport_destinations[name] = dest
 	end,
 
-	-- once entered, check coords, if ok then return potion
-	on_receive_fields = function(pos, formname, fields, sender)
+	-- Initialize teleport to saved location or the current position
+	after_place_node = function(pos, placer, itemstack, pointed_thing)
+		local meta = minetest.get_meta(pos)
+		local name = placer:get_player_name()
+		local dest = teleport_destinations[name]
+		if not dest then
+			dest = pos
+		end
+		-- Set coords
+		meta:set_int("x", dest.x)
+		meta:set_int("y", dest.y)
+		meta:set_int("z", dest.z)
 
-		local name = sender:get_player_name()
+		meta:set_string("infotext", S("Pad Active (@1,@2,@3)",
+				dest.x, dest.y, dest.z))
+
+		minetest.sound_play("portal_open", {
+			pos = pos,
+			gain = 1.0,
+			max_hear_distance = 10
+		})
+	end,
+
+	-- Show formspec depending on the players privileges.
+	on_rightclick = function(pos, node, clicker, itemstack, pointed_thing)
+		local name = clicker:get_player_name()
 
 		if minetest.is_protected(pos, name) then
 			minetest.record_protection_violation(pos, name)
 			return
 		end
 
-		local coords = check_coordinates(fields.text)
-
-		if coords then
-
-			local meta = minetest.get_meta(pos)
-
-			meta:set_int("x", coords.x)
-			meta:set_int("y", coords.y)
-			meta:set_int("z", coords.z)
-			meta:set_string("text", fields.text)
-
-			if coords.desc and coords.desc ~= "" then
-
-				meta:set_string("infotext", S("Teleport to @1", coords.desc))
-			else
-				meta:set_string("infotext", S("Pad Active (@1,@2,@3)",
-					coords.x, coords.y, coords.z))
-			end
-
-			minetest.sound_play("portal_open", {
-				pos = pos,
-				gain = 1.0,
-				max_hear_distance = 10
-			})
-
-		else
-			minetest.chat_send_player(name, S("Teleport Pad coordinates failed!"))
+		local meta = minetest.get_meta(pos)
+		local coords = {
+			x = meta:get_int("x"),
+			y = meta:get_int("y"),
+			z = meta:get_int("z")
+		}
+		local coords = coords.x .. "," .. coords.y .. "," .. coords.z
+		local desc = meta:get_string("desc")
+		formspec = "field[desc;" .. S("Description") .. ";" .. desc .. "]"
+		-- Only allow privileged players to change coordinates
+		local has_priv = minetest.get_player_privs(name)["teleport"]
+		if has_priv then
+			formspec = formspec ..
+					"field[coords;" .. S("Teleport coordinates") .. ";" .. coords .. "]"
 		end
+
+		teleport_formspec_context[name] = {
+			pos = pos,
+			coords = coords,
+			desc = desc,
+		}
+		minetest.show_formspec(name, "teleport_potion:set_destination", formspec)
 	end,
 })
 
+-- Check and set coordinates
+minetest.register_on_player_receive_fields(function(player, formname, fields)
+	if formname ~= "teleport_potion:set_destination" then
+		return false
+	end
+	local name = player:get_player_name()
+	local context = teleport_formspec_context[name]
+	local meta = minetest.get_meta(context.pos)
+	-- Coordinates were changed
+	if fields.coords and fields.coords ~= context.coords then
+		local coords = check_coordinates(fields.coords)
+		if coords then
+			meta:set_int("x", coords.x)
+			meta:set_int("y", coords.y)
+			meta:set_int("z", coords.z)
+		else
+			minetest.chat_send_player(name, S("Teleport Pad coordinates failed!"))
+		end
+	end
+	-- Update infotext
+	if fields.desc and fields.desc ~= "" then
+		meta:set_string("desc", fields.desc)
+		meta:set_string("infotext", S("Teleport to @1", fields.desc))
+	else
+		local coords = minetest.string_to_pos("(" .. context.coords .. ")")
+		meta:set_string("infotext", S("Pad Active (@1,@2,@3)",
+			coords.x, coords.y, coords.z))
+	end
+
+	return true
+end)
 
 -- teleport pad recipe
 minetest.register_craft({

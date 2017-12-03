@@ -1,5 +1,12 @@
 Teleport Potion
 
+This is a modification of the teleport_potion mod by TenPlus1, which focuses on
+immersion. The goal is to
+  - limit the teleport targets to known locations
+  - increase immersion by hiding coordinates from the normal player
+  - stay compatible with the original mod
+    - players with the `teleport` privilege can still set any coordinates
+
 This minetest mod adds both a teleportation potion and pad to the game
 
 https://forum.minetest.net/viewtopic.php?f=9&t=9234
