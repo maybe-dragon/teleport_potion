@@ -26,7 +26,7 @@ local check_coordinates = function(str)
 	end
 
 	-- get coords from string
-	local x, y, z, desc = string.match(str, "^(-?%d+),(-?%d+),(-?%d+),?(.*)$")
+	local x, y, z = string.match(str, "^(-?%d+),(-?%d+),(-?%d+)$")
 
 	-- check coords
 	if x == nil or string.len(x) > 6
@@ -48,7 +48,7 @@ local check_coordinates = function(str)
 	end
 
 	-- return ok coords
-	return {x = x, y = y, z = z, desc = desc}
+	return {x = x, y = y, z = z}
 end
 
 
@@ -72,8 +72,17 @@ function tp_effect(pos)
 	})
 end
 
+local teleport_destinations = {}
 
--- teleport portal
+function set_teleport_destination(playername, dest)
+	minetest.chat_send_player(playername,
+			"Marked destination: " .. minetest.pos_to_string(dest))
+	teleport_destinations[playername] = dest
+end
+
+--------------------------------------------------------------------------------
+--- Teleport portal
+--------------------------------------------------------------------------------
 minetest.register_node("teleport_potion:portal", {
 	drawtype = "plantlike",
 	tiles = {
@@ -116,7 +125,6 @@ minetest.register_node("teleport_potion:portal", {
 --------------------------------------------------------------------------------
 --- Teleport potion
 --------------------------------------------------------------------------------
-
 minetest.register_node("teleport_potion:potion", {
 	tiles = {"pad.png"},
 	drawtype = "signlike",
@@ -124,72 +132,48 @@ minetest.register_node("teleport_potion:potion", {
 	paramtype2 = "wallmounted",
 	walkable = false,
 	sunlight_propagates = true,
-	description = S("Teleport Potion (place and right-click to enchant location)"),
+	description = S("Teleport Potion (use to set destination; place to open portal)"),
 	inventory_image = "potion.png",
 	wield_image = "potion.png",
 	groups = {dig_immediate = 3},
 	selection_box = {type = "wallmounted"},
 
-	on_construct = function(pos)
-
-		local meta = minetest.get_meta(pos)
-
-		-- text entry formspec
-		meta:set_string("formspec", "field[text;" .. S("Enter teleport coords (e.g. 200,20,-200)") .. ";${text}]")
-		meta:set_string("infotext", S("Right-click to enchant teleport location"))
-		meta:set_string("text", pos.x .. "," .. pos.y .. "," .. pos.z)
-
-		-- set default coords
-		meta:set_int("x", pos.x)
-		meta:set_int("y", pos.y)
-		meta:set_int("z", pos.z)
-	end,
-
-	-- throw potion when used like tool
-	on_use = function(itemstack, user)
-
-		throw_potion(itemstack, user)
-
-		if not is_creative(user:get_player_name()) then
-			itemstack:take_item()
-			return itemstack
+	on_use = function(itemstack, user, pointed_thing)
+		if pointed_thing.type == "node" then
+			set_teleport_destination(user:get_player_name(), pointed_thing.above)
+		else
+			throw_potion(itemstack, user)
+			if not is_creative(user:get_player_name()) then
+				itemstack:take_item()
+				return itemstack
+			end
 		end
 	end,
 
-	-- check if coords ok then open portal, otherwise return potion
-	on_receive_fields = function(pos, formname, fields, sender)
-
-		local coords = check_coordinates(fields.text)
-		local name = sender:get_player_name()
-
-		if coords then
-
+	after_place_node = function(pos, placer, itemstack, pointed_thing)
+		local name = placer:get_player_name()
+		local dest = teleport_destinations[name]
+		if dest then
 			minetest.set_node(pos, {name = "teleport_potion:portal"})
-
 			local meta = minetest.get_meta(pos)
-
-			-- set portal destination
-			meta:set_int("x", coords.x)
-			meta:set_int("y", coords.y)
-			meta:set_int("z", coords.z)
-
-			-- portal open effect and sound
+			-- Set portal destination
+			meta:set_int("x", dest.x)
+			meta:set_int("y", dest.y)
+			meta:set_int("z", dest.z)
+			-- Portal open effect and sound
 			tp_effect(pos)
-
 			minetest.sound_play("portal_open", {
 				pos = pos,
 				gain = 1.0,
 				max_hear_distance = 10
 			})
-
 		else
 			minetest.chat_send_player(name, S("Potion failed!"))
-			minetest.set_node(pos, {name = "air"})
+			minetest.remove_node(pos)
 			minetest.add_item(pos, "teleport_potion:potion")
 		end
 	end,
 })
-
 
 -- teleport potion recipe
 minetest.register_craft({
@@ -204,7 +188,6 @@ minetest.register_craft({
 --------------------------------------------------------------------------------
 --- Teleport pad
 --------------------------------------------------------------------------------
-local teleport_destinations = {}
 local teleport_formspec_context = {}
 
 minetest.register_node("teleport_potion:pad", {
@@ -215,7 +198,7 @@ minetest.register_node("teleport_potion:pad", {
 	legacy_wallmounted = true,
 	walkable = true,
 	sunlight_propagates = true,
-	description = S("Teleport Pad (place and right-click to enchant location)"),
+	description = S("Teleport Pad (use to set destination; place to open portal)"),
 	inventory_image = "padd.png",
 	wield_image = "padd.png",
 	light_source = 5,
@@ -229,16 +212,11 @@ minetest.register_node("teleport_potion:pad", {
 		fixed = {-0.5, -0.5, -0.5, 0.5, -6/16, 0.5}
 	},
 
+	-- Save pointed nodes coordinates as destination for further portals
 	on_use = function(itemstack, user, pointed_thing)
-		-- Save pointed nodes coordinates as destination for further portals
-		if pointed_thing.type ~= "node" then
-			return
+		if pointed_thing.type == "node" then
+			set_teleport_destination(user:get_player_name(), pointed_thing.above)
 		end
-		local name = user:get_player_name()
-		local dest = pointed_thing.above
-		minetest.chat_send_player(name,
-				"Marked destination: " .. minetest.pos_to_string(dest))
-		teleport_destinations[name] = dest
 	end,
 
 	-- Initialize teleport to saved location or the current position
