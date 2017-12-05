@@ -263,10 +263,10 @@ minetest.register_node("teleport_potion:pad", {
 		}
 		local coords = coords.x .. "," .. coords.y .. "," .. coords.z
 		local desc = meta:get_string("desc")
-		formspec = "field[desc;" .. S("Description") .. ";" .. desc .. "]"
+		formspec = "field[desc;" .. S("Description") .. ";"
+				.. minetest.formspec_escape(desc) .. "]"
 		-- Only allow privileged players to change coordinates
-		local has_priv = minetest.get_player_privs(name)["teleport"]
-		if has_priv then
+		if minetest.check_player_privs(name, "teleport") then
 			formspec = formspec ..
 					"field[coords;" .. S("Teleport coordinates") .. ";" .. coords .. "]"
 		end
@@ -287,6 +287,8 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 	end
 	local name = player:get_player_name()
 	local context = teleport_formspec_context[name]
+	if not context then return false end
+	teleport_formspec_context[name] = nil
 	local meta = minetest.get_meta(context.pos)
 	-- Coordinates were changed
 	if fields.coords and fields.coords ~= context.coords then
@@ -308,7 +310,6 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 		meta:set_string("infotext", S("Pad Active (@1,@2,@3)",
 			coords.x, coords.y, coords.z))
 	end
-
 	return true
 end)
 
